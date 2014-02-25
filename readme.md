@@ -43,9 +43,8 @@ final case class Step[T](
 Examples
 --------
 
-https://github.com/TODO
-https://github.com/TODO
-
+https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaConsensusTest.scala
+https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaRsmTest.scala
 
 Reduced connectivity
 --------------------
@@ -98,7 +97,7 @@ This includes instance id, other member ids and paxos state.
 Adding or removing members after first instance useage can compromise the protocol.
 
 See this example:
-https://github.com/TODO
+https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/PersistedAkkaRsmTest.scala
 
 
 License
