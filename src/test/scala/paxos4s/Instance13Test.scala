@@ -100,7 +100,7 @@ class Instance13Test extends FunSuite {
     exec(size = 13, quorum = 11, optimize = true, hazardous = false)
   }
 
-  test("cluster of 13, 12 o h") {
+  ignore("cluster of 13, 12 o h") {
     exec(size = 13, quorum = 12, optimize = true, hazardous = true)
   }
 

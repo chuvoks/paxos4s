@@ -2,7 +2,7 @@ name := "paxos"
 
 organization := "paxos4s"
 
-version := "0.8"
+version := "0.9"
 
 scalaVersion := "2.10.3"
 

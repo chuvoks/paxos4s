@@ -86,15 +86,23 @@ object TestEnvironment {
     members: Set[Int],
     quorum: Int,
     optimize: Boolean,
-    send: PaxOut[T] => Unit): Map[Int, Instance[T]] = {
+    send: PaxOut[T] => Unit,
+    leaderId: Option[Int]): Map[Int, Instance[T]] = {
     val nopPersist: PaxosState[T] => Unit = a => Unit
     var nodes = Map[Int, Instance[T]]()
     for (id <- members) {
-      val p = PaxosOp[T](id, quorum, members - id, send, nopPersist, optimize)
-      val s = PaxosState.empty[T]
-      nodes += id -> Instance(p, s)
+      val i = Instance.empty[T](leaderId, id, members, nopPersist, send)
+      nodes += id -> i.copy(paxos = i.paxos.copy(quorum = quorum, optimize = optimize))
     }
     nodes
+  }
+
+  def randomSetOf(rnd: Random, size: Int): Set[Int] = {
+    var s = Set[Int]()
+    while (s.size < size) {
+      s += rnd.nextInt()
+    }
+    s
   }
 
 }

@@ -88,7 +88,7 @@ class Instance15Test extends FunSuite {
     exec(size = 15, quorum = 12, optimize = true, hazardous = true)
   }
 
-  test("cluster of 15, 12 - h") {
+  ignore("cluster of 15, 12 - h") {
     exec(size = 15, quorum = 12, optimize = false, hazardous = true)
   }
 
@@ -100,7 +100,7 @@ class Instance15Test extends FunSuite {
     exec(size = 15, quorum = 12, optimize = true, hazardous = false)
   }
 
-  test("cluster of 15, 13 o h") {
+  ignore("cluster of 15, 13 o h") {
     exec(size = 15, quorum = 13, optimize = true, hazardous = true)
   }
 

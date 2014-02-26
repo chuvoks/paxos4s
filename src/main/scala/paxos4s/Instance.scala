@@ -46,7 +46,7 @@ final case class Instance[T](
 
   /** Process input packet and return next instance which should process the next packet. */
   def process(pax: Pax[T]): Try[Step[T]] = {
-    val consensus = PaxosState.handle(paxos)(state)(pax).map(Instance(paxos, _))
+    val consensus = PaxosState.handle(paxos, state, pax).map(Instance(paxos, _))
     consensus.map(newInstance => {
       val learnTransition = (state.learnedVal, newInstance.state.learnedVal)
       val agreed = learnTransition match {
@@ -69,6 +69,7 @@ object Instance {
   /**
    * Creates an empty paxos instance.
    *
+   * @param leaderId optional leader identifier if Multi-Paxos optimization is enabled.
    * @param unique member identifier
    * @param members identifiers of all members participating into consensus.
    * Notice that this set must remain the same even after crash recovery.
@@ -78,10 +79,17 @@ object Instance {
    * @param send a function which is used to send information to other instance members.
    * This function can behave on "fire-and-forget" basis. Throwing exceptions is not encouraged.
    */
-  def empty[T](id: Int, members: Set[Int], persist: PaxosState[T] => Unit, send: PaxOut[T] => Unit): Instance[T] = {
+  def empty[T](leaderId: Option[Int], id: Int, members: Set[Int], persist: PaxosState[T] => Unit, send: PaxOut[T] => Unit): Instance[T] = {
     require(members.contains(id), "members must contain id")
     val op = PaxosOp.create[T](id, members, persist, send)
-    val s = PaxosState.empty[T]
+    val s = leaderId match {
+      case Some(leader) => {
+        require(members.contains(leader), "members must contain leader")
+        if (id == leader) PaxosState.leaderRiggedToMultiPaxos[T](leader, members - leader)
+        else PaxosState.nonLeaderRiggedToMultiPaxos[T](leader)
+      }
+      case None => PaxosState.empty[T]
+    }
     Instance(op, s)
   }
 

@@ -16,8 +16,9 @@ package paxos4s
 
 import scala.collection.immutable.TreeMap
 import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
-import scala.concurrent.{Promise => ScalaPromise}
+import scala.concurrent.{ Promise => ScalaPromise }
 import scala.concurrent.duration.Duration
 import scala.util.Success
 
@@ -77,7 +78,7 @@ class RMSDemo[T](val system: ActorSystem) {
 
   private[this] def createInstance[T](id: Int, send: PaxOut[T] => Unit): Instance[T] = {
     val nopPersist: PaxosState[T] => Unit = a => Unit
-    Instance.empty(id, members, nopPersist, send)
+    Instance.empty(None, id, members, nopPersist, send)
   }
 
   private[this] def get: Future[Map[Long, Option[T]]] = {
@@ -86,21 +87,26 @@ class RMSDemo[T](val system: ActorSystem) {
     getReq.promise.future
   }
 
-  def waitFor(x: T): Unit = {
+  def waitFor(id: Int, x: T): Unit = {
     import scala.concurrent.duration._
-    while (Await.result(get, Duration("3 seconds")).filter(_._2 == Some(x)).isEmpty) {
-      Thread.`yield`()
-    }
+    import scala.concurrent.ExecutionContext.Implicits.global
+    actors(id) ! x
+    Await.result(Future {
+      var i = 1
+      while (Await.result(get, Duration("3 seconds")).filter(_._2 == Some(x)).isEmpty) {
+        Thread.sleep(i)
+        i += 1
+        // retry, initial attempt might have just triggered the node to learn a value already agreed by others
+        actors(id) ! x
+      }
+    }, Duration("3 seconds"))
   }
 
   /** throws timeout exception on failure .*/
   def run(a: T, b: T, c: T): Unit = {
-    actors(1) ! a
-    waitFor(a)
-    actors(3) ! b
-    waitFor(b)
-    actors(5) ! c
-    waitFor(c)
+    waitFor(1, a)
+    waitFor(3, b)
+    waitFor(5, c)
   }
 
 }

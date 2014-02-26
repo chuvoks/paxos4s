@@ -1,20 +1,18 @@
 paxos4s
 =======
 
-Paxos (https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) implementation in Scala.
+[Paxos](https://en.wikipedia.org/wiki/Paxos_%28computer_science%29) implementation in Scala.
 
 In a nutshell: Paxos is a fault tolerant consensus protocol.
 It can make progress using 2F+1 processors despite the simultaneous failure of any F processors.
-If there is more than F simultaneous failing processors consensus is not possible.
 
-Current implement is collapsed basic Paxos with some optimizations and tweaks.
-Multi-Paxos is not yet implemented.
+Current implement is Collapsed Multi-Paxos.
 
 
 API
 ---
 
-Purely functional and immutable, straight forward and simple:
+Purely functional, immutable and simple:
 * propose method for persuading others
 * process method which takes a message and returns an optional outcome (agreed/rejected)
 
@@ -38,66 +36,78 @@ final case class Step[T](
   val next: Instance[T],
   val outcome: Option[Outcome[T]])
 ```
+In action:
+```scala
+class MyActor[T](var instance: Instance[T]) extends Actor {
 
+  def receive = {
+    case pax: Pax[T] => instance.process(pax) match {
+      case Success(Step(next, Some(Agreed(t)))) => {
+        println("Agreed: " + t + "!")
+      }
+      case Success(Step(next, _)) => instance = next
+    }
+  }
+
+}
+```
+
+While the main API is trivial to use, setting up the persistence and message delivery can take some effort. See the examples below.
 
 Examples
 --------
 
-https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaConsensusTest.scala
-https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaRsmTest.scala
-
-Reduced connectivity
---------------------
-
-In collapsed basic Paxos each node is Client, Proposer, Acceptor and Learner. This can lead to
-a fully connected network requiring ```c = n * (n - 1) / 2``` connections.
-
-Implementation is optimized to limit only proposer to communicate with others.
-
-
-Atomic & consistent
--------------------
-
-Paxos protocol is eventually consistent: there can be multiple concurrent conflicting *Accepted* messages in-flight.
-Implementation requires *Accepted* message from majority which makes it effectively atomic.
+* https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaConsensusTest.scala
+* https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/AkkaRsmTest.scala
+* https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/PersistedAkkaRsmTest.scala
 
 
 Short-circuiting
 ----------------
 
-Since the implementation is atomic it short-circuits immediately after value is agreed forcing
-other members to agree on value if they attempt any further communication.
+Implementation short-circuits immediately after a value is agreed. This forces
+other members to agree on the value if they attempt any further communication.
 
-Notice that this also allows implementation to forget all the other protocol state information 
-once the consensus is reached: only agreed value needs to be kept.
-
-
-Requirements
-------------
-
-* reliable persistent storage
-* corruption free message transport
+After short-circuiting only the learned value and selected leader identifier are kept.
+Persistence implementations can take advantage of this, if desired.
 
 
-Other considerations
---------------------
+Leader ship detection
+---------------------
 
-* Despite of optimizations collapsed basic Paxos protocol has its limit on scalability.
+Leader is simply the processor whose proposal gets accepted. This can be used, for example, to enable Multi-Paxos.
+
+
+Multi-Paxos implementation
+--------------------------
+
+Optional leader identifier can be given when paxos instances are created.
+
+If leader identifier is given the resulting protocol instance is rigged as if the first phase of the protocol is already completed by the given leader.
+When rigged leader invokes propose method it will send immediately Accept Request to acceptors.
+Similarly rigged acceptors will immediately reply with Accepted message.
+
+If leader is not given or some of the acceptors make a proposal the protocol uses Basic-Paxos.
+
+
+Few things to keep in mind
+--------------------------
+
 * Minimum number of processors is 3 (Paxos can make progress using 2F+1 processor with F simultaneous failures).
 * Having 5 - 32 processors seems to be fairly reasonable amount.
-* Reaching agreement with 10.000 processors can take several seconds even within a single jvm.
-* Network/Paxos congestion can kill the performance. Use message throttling if necessary.
+* Reaching consensus with 10.000 processors can take several seconds even within a single jvm. Multi-Paxos reduces execution time to roughly half on following rounds, assuming the leader do not change.
+* Network/Paxos congestion can kill the performance. Use message throttling if necessary. Having a stable leader + Multi-Paxos helps.
 
 
-Note on persistence
--------------------
+Persisted data
+--------------
 
-Instance data should be kept intact despite restarts and crashes.
-This includes instance id, other member ids and paxos state.
-Adding or removing members after first instance useage can compromise the protocol.
+Instance data should be kept intact despite restarts and crashes. This includes instance id, other member identifiers and paxos protocol state.
 
-See this example:
-https://github.com/chuvoks/paxos4s/blob/master/src/test/scala/paxos4s/PersistedAkkaRsmTest.scala
+Adding or removing members during paxos instance process will compromise the protocol. Any membership changes should happen between different paxos instances.
+In other words: after paxos instance is created do not add/remove/modify member identifiers. Ever.
+
+See the PersistedAkkaRsmTest example mentioned above.
 
 
 License

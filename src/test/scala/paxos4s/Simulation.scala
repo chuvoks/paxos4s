@@ -21,19 +21,25 @@ import org.slf4j.LoggerFactory
 
 import com.typesafe.scalalogging.slf4j.Logger
 
-class Simulation(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean, seed: Long) extends Assertions {
+class Simulation(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean, multiPaxos: Boolean, seed: Long) extends Assertions {
 
   val log = Logger(LoggerFactory.getLogger(getClass))
   val rnd = new Random(seed)
   var steps = 0 // can help to find a minimized test case
   var agreed = Set[Int]()
-  val members = (1 to size).to[Set]
+  val members = TestEnvironment.randomSetOf(rnd, size)
+  private[this] val _membersArray = members.toArray
+  def randomMemberId(): Int = _membersArray(rnd.nextInt(size))
+  val leaderId =
+    if (multiPaxos) Some(randomMemberId())
+    else None
   val environment = new TestEnvironment[Int](members, hazardous)
   var instances: Map[Int, Instance[Int]] =
-    TestEnvironment.createNodes[Int](members, quorum, optimize, environment.send)
+    TestEnvironment.createNodes[Int](members, quorum, optimize, environment.send, leaderId)
 
   def run(): Unit = {
-    withClue(s"size=$size seed=$seed quorum=$quorum optimize=$optimize hazardous=$hazardous\n") {
+    def clue = s"size=$size seed=$seed quorum=$quorum optimize=$optimize hazardous=$hazardous multiPaxos=$multiPaxos\n"
+    withClue(clue) {
       simulate()
       verifyClusterState()
     }
@@ -41,9 +47,11 @@ class Simulation(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean, 
 
   private[this] def simulate(): Unit = {
     while (!isDone) {
-      steps += 1
-      processPendingPacket()
-      perturbNode()
+      withClue(s"steps=$steps\n") {
+        steps += 1
+        processPendingPacket()
+        perturbNode()
+      }
     }
   }
 
@@ -71,14 +79,14 @@ class Simulation(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean, 
   private[this] def perturbNode(): Unit = {
 
     def crashNode(): Unit = {
-      val id = rnd.nextInt(instances.size) + 1
+      val id = randomMemberId()
       val instance = instances(id)
       log.trace(s"crash: id=$id")
       instances += (id -> Instance(instance.paxos, PaxosState.clearTransient(instance.state)))
     }
 
     def propose(): Unit = {
-      val id = rnd.nextInt(instances.size) + 1
+      val id = randomMemberId()
       val instance = instances(id)
       if (instance.agreedValue.isEmpty) {
         val value = rnd.nextInt
@@ -93,27 +101,31 @@ class Simulation(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean, 
       case Propose => propose()
       case Crash => crashNode()
     })
+
   }
 
   private[this] def verifyClusterState(): Unit = {
-    try {
-      val states = instances.values.map(_.state).toList
-      val expected = states.head.learnedVal
-      states.tail.foreach(state => {
-        assertResult(expected)(state.learnedVal)
-      })
-      assertResult(agreed)(members)
-    } catch {
-      case e: RuntimeException => {
-        fail(s"steps=$steps e=$e", e)
-      }
-    }
+    val states = instances.values.map(_.state).toList
+    val expected = states.head.learnedVal
+    states.tail.foreach(state => {
+      assertResult(expected)(state.learnedVal)
+    })
+    assertResult(agreed)(members)
+    val leaders = instances.values.map(i => i.state.leader).toList
+    assertResult(1, "multiple leaders not allowed")(leaders.distinct.size)
   }
+
 }
 
 object Simulation {
 
   def exec(size: Int, quorum: Int, optimize: Boolean, hazardous: Boolean) =
-    new Simulation(size, quorum, optimize, hazardous, seed = Random.nextLong).run()
+    new Simulation(
+      size = size,
+      quorum = quorum,
+      optimize = optimize,
+      hazardous = hazardous,
+      multiPaxos = Random.nextBoolean(),
+      seed = Random.nextLong()).run()
 
 }

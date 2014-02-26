@@ -18,19 +18,23 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
+import java.io.ObjectStreamClass
+
 import scala.collection.SortedSet
 import scala.concurrent.Await
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
 import scala.concurrent.{ Promise => ScalaPromise }
 import scala.concurrent.duration.Duration
 import scala.util.Success
+
 import org.scalatest.FunSuite
+
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.ActorSystem
 import akka.actor.Props
 import akka.actor.actorRef2Scala
-import java.io.ObjectStreamClass
 
 case class InstanceData[T](id: Int, members: Set[Int], state: PaxosState[T])
 
@@ -74,6 +78,10 @@ class InMemoryDataPersistence[K, T](cl: ClassLoader) {
   def save(key: K, instanceData: InstanceData[T]): Unit = {
     val baos = new ByteArrayOutputStream()
     val oos = new ObjectOutputStream(baos)
+    // In real-world system transient members can be removed. For example: 
+    // oos.writeObject(instanceData.copy(state = PaxosState.clearTransient(instanceData.state)))
+    // For demo purposes this is not done because active instances are not cached 
+    // (active instance should be cached at least until consensus is reached)
     oos.writeObject(instanceData)
     oos.close()
     blobStore += (key -> baos.toByteArray())
@@ -87,8 +95,7 @@ class InMemoryDataPersistence[K, T](cl: ClassLoader) {
         override def resolveClass(desc: ObjectStreamClass): Class[_] = {
           Class.forName(desc.getName(), true, cl);
         }
-      })
-        .readObject()).asInstanceOf[InstanceData[T]]
+      }).readObject()).asInstanceOf[InstanceData[T]]
     })
   }
 
@@ -99,18 +106,35 @@ class InMemoryDataPersistence[K, T](cl: ClassLoader) {
 class InstancePersistence[K, T](persistence: InMemoryDataPersistence[K, T]) {
 
   def get(key: K, send: PaxOut[T] => Unit): Option[Instance[T]] =
-    persistence.load(key).map(data => from(key, data, send))
+    persistence.load(key).map(data => loadFrom(key, data, send))
+
+  def getLeader(key: K): Option[Int] =
+    persistence.load(key).map(_.state.leader).flatten
 
   def update(key: K, instance: Instance[T]): Unit =
     persistence.save(key,
       persistence.load(key).get.copy(state = instance.state))
 
-  def create(key: K, id: Int, members: Set[Int], send: PaxOut[T] => Unit): Instance[T] =
-    from(key, InstanceData(id, members, PaxosState.empty), send)
+  def create(key: K, leaderId: Option[Int], id: Int, members: Set[Int], send: PaxOut[T] => Unit): Instance[T] = {
+    val i = createFrom(key, leaderId, id, members, send)
+    persistence.save(key, InstanceData(id, members, i.state))
+    i
+  }
 
   def keys: Set[K] = persistence.keys
 
-  private[this] def from(
+  private[this] def createFrom(
+    key: K,
+    leaderId: Option[Int],
+    id: Int,
+    members: Set[Int],
+    send: PaxOut[T] => Unit): Instance[T] = {
+    val persist: PaxosState[T] => Unit =
+      newState => persistence.save(key, InstanceData(id, members, newState))
+    Instance.empty(leaderId, id, members, persist, send)
+  }
+
+  private[this] def loadFrom(
     key: K,
     instanceData: InstanceData[T],
     send: PaxOut[T] => Unit): Instance[T] = {
@@ -134,8 +158,9 @@ class StateInstances[T](
   def update(stateId: Long, instance: Instance[T]): Unit =
     persist.update(stateId, instance)
 
-  def create(stateId: Long): Instance[T] =
-    persist.create(stateId, id, currentMembers, send(stateId, _))
+  def create(stateId: Long): Instance[T] = {
+    persist.create(stateId, persist.getLeader(stateId - 1), id, currentMembers, send(stateId, _))
+  }
 
   private[this] def send(stateId: Long, out: PaxOut[T]): Unit =
     out.dest.foreach(dst => dispatch(dst, RsmPax(stateId, out.pax)))
@@ -146,7 +171,7 @@ class StateInstances[T](
 
 class PersistedRMSDemo[T](val system: ActorSystem, cl: ClassLoader) {
 
-  private[this] val members: Set[Int] = (1 to 10).toSet
+  private[this] val members: Set[Int] = (0 to 10).toSet
 
   private[this] val actors: Map[Int, ActorRef] = members.map(id => {
     val persist = new InstancePersistence[Long, T](new InMemoryDataPersistence(cl))
@@ -161,21 +186,27 @@ class PersistedRMSDemo[T](val system: ActorSystem, cl: ClassLoader) {
     getReq.promise.future
   }
 
-  def waitFor(x: T): Unit = {
+  def waitFor(id: Int, x: T): Unit = {
     import scala.concurrent.duration._
-    while (Await.result(get, Duration("3 seconds")).filter(_._2 == Some(x)).isEmpty) {
-      Thread.`yield`()
-    }
+    import scala.concurrent.ExecutionContext.Implicits.global
+    actors(id) ! x
+    Await.result(Future {
+      var i = 1
+      while (Await.result(get, Duration("3 seconds")).filter(_._2 == Some(x)).isEmpty) {
+        Thread.sleep(i)
+        i += 1
+        // retry, initial attempt might have just triggered the node to learn a value already agreed by others
+        actors(id) ! x
+      }
+    }, Duration("3 seconds"))
   }
 
   /** throws timeout exception on failure .*/
   def run(a: T, b: T, c: T): Unit = {
-    actors(1) ! a
-    waitFor(a)
-    actors(3) ! b
-    waitFor(b)
-    actors(5) ! c
-    waitFor(c)
+    waitFor(1, a)
+    waitFor(3, b)
+    waitFor(3, b) // should be now the leader, Multi-Paxos kicks in
+    waitFor(5, c)
   }
 
 }
@@ -194,4 +225,3 @@ class PersistedAkkaRsmTest extends FunSuite {
   }
 
 }
-

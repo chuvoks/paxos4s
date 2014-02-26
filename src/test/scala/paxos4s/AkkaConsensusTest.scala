@@ -62,7 +62,8 @@ class ConsensusDemo[T](val system: ActorSystem) {
 
   private[this] def createInstance[T](id: Int, send: PaxOut[T] => Unit): Instance[T] = {
     val nopPersist: PaxosState[T] => Unit = a => Unit
-    Instance.empty(id, members, nopPersist, send)
+    // notice we optimize for id=1 to be the leader
+    Instance.empty(leaderId = Some(1), id, members, nopPersist, send)
   }
 
   /** return true if success. false on timeout.*/

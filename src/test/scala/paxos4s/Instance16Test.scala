@@ -56,7 +56,7 @@ class Instance16Test extends FunSuite {
     exec(size = 16, quorum = 11, optimize = true, hazardous = true)
   }
 
-  test("cluster of 16, 11 - h") {
+  ignore("cluster of 16, 11 - h") {
     exec(size = 16, quorum = 11, optimize = false, hazardous = true)
   }
 
@@ -72,7 +72,7 @@ class Instance16Test extends FunSuite {
     exec(size = 16, quorum = 12, optimize = true, hazardous = true)
   }
 
-  test("cluster of 16, 12 - h") {
+  ignore("cluster of 16, 12 - h") {
     exec(size = 16, quorum = 12, optimize = false, hazardous = true)
   }
 
@@ -84,11 +84,11 @@ class Instance16Test extends FunSuite {
     exec(size = 16, quorum = 12, optimize = true, hazardous = false)
   }
 
-  test("cluster of 16, 13 o h") {
+  ignore("cluster of 16, 13 o h") {
     exec(size = 16, quorum = 13, optimize = true, hazardous = true)
   }
 
-  test("cluster of 16, 13 - h") {
+  ignore("cluster of 16, 13 - h") {
     exec(size = 16, quorum = 13, optimize = false, hazardous = true)
   }
 
@@ -96,11 +96,11 @@ class Instance16Test extends FunSuite {
     exec(size = 16, quorum = 13, optimize = false, hazardous = false)
   }
 
-  ignore("cluster of 16, 13 o -") {
+  test("cluster of 16, 13 o -") {
     exec(size = 16, quorum = 13, optimize = true, hazardous = false)
   }
 
-  test("cluster of 16, 14 o h") {
+  ignore("cluster of 16, 14 o h") {
     exec(size = 16, quorum = 14, optimize = true, hazardous = true)
   }
 
